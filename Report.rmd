@@ -79,9 +79,6 @@ buildDGE <- function(x, group,n=2){
   
   y <- DGEList(counts=x[,3:i], genes=x[,1:2], group=group)
   
-  rownames(y$counts) <- rownames(y$genes) <- y$genes$gene_id
-  y$genes$gene_id <- NULL
-  
   keep <- rowSums(cpm(y)>1)>=n
   y <- y[keep,,keep.lib.sizes=F]
   
