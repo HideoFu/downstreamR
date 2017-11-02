@@ -79,9 +79,6 @@ buildDGE <- function(x, group,n=2){
   
   y <- DGEList(counts=x[,3:i], genes=x[,1:2], group=group)
   
-  rownames(y$counts) <- rownames(y$genes) <- y$genes$gene_id
-  y$genes$gene_id <- NULL
-  
   keep <- rowSums(cpm(y)>1)>=n
   y <- y[keep,,keep.lib.sizes=F]
   
@@ -110,10 +107,14 @@ Fit <- glmQLFit(DGE, Design, robust= TRUE)
 
 ```{r saveObj}
 saveRDS(DGE, file = "DGE.obj")
-saveRDS(Fit, file = "Fit.obj")
+saveRDS(Fit, file = "fit.obj")
+saveRDS(Design, file = "design.obj")
 
-comparisonFlag0 <- rep(0, length(SAMPLES))
+cell_list <- as.list(CELLS)
+names(cell_list) <- CELLS
+saveRDS(cell_list, file = "cells.obj")
 
+saveRDS(CONDITION, file = "condition.obj")
 ```
 
 ```{r makeTopTable}

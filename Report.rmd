@@ -192,11 +192,11 @@ legend("topright", cex=0.7, legend=levels(group), pch=shapes0, col=rep(colors0,e
 ### 主成分分析でのサンプル差異
 
 ```{r PCA, fig.height=8}
-tbCPM <- cpm(DGE)[,1:22]
+tbCPM <- cpm(DGE)
 rownames(tbCPM) <- DGE$genes$symbol
 dfCPM.T <- as.data.frame(t(tbCPM))
-dfCPM.T$cell <- as.factor(rep(CELLS, each=length(CONDITION) * SAMPLE_REPETITION))[1:22]
-dfCPM.T$condition <- as.factor(rep(rep(CONDITION, each= SAMPLE_REPETITION), length(CELLS)))[1:22]
+dfCPM.T$cell <- as.factor(rep(CELLS, each=length(CONDITION) * SAMPLE_REPETITION))
+dfCPM.T$condition <- as.factor(rep(rep(CONDITION, each= SAMPLE_REPETITION), length(CELLS)))
 i = ncol(dfCPM.T)
 
 PCA.CPM <- PCA(dfCPM.T, graph = F, quali.sup = (i-1):i)
