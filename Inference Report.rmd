@@ -1,0 +1,272 @@
+---
+title: "FILMseq result --- 20170919" 
+author: "H. Fushimi"
+date: "09/21/2017"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, cache = TRUE)
+```
+
+```{r loadLib, include=FALSE}
+library(tidyr)
+library(org.Hs.eg.db)
+library(edgeR)
+library(stringr)
+library(knitr)
+library(ggplot2)
+library(gplots)
+library(statmod)
+library(FactoMineR)
+library(RColorBrewer)
+library(dplyr)
+```
+
+## 試験条件
+
+```{r testCond}
+FILENAME <- "170919_Counts_Summary.txt"
+
+CELLS <- c("iPS101", "iPS102", "iPS1279", "iPS6.1")
+CONDITION <- c("s1", "s2", "s3")
+SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
+
+SAMPLE_REPETITION <- 2
+```
+
+```{r plotEnv}
+N_TOP <- 50    # number of genes to examine
+N_TABLE_ROW <- 10    # number of genes in tables
+```
+
+## 結果概要
+
+## 結果
+### リード数
+
+```{r readData}
+# Retrieve data for BMEC.
+runData <- read.delim(FILENAME, stringsAsFactors = F)
+col1 <- grep("milliQ", colnames(runData))
+col2 <- grep("Undetermined", colnames(runData))
+cols <- c(col1, col2)
+
+data <- runData[,-cols] 
+colnames(data) <- c("symbol", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
+```
+
+```{r plotBox}
+long_data <- gather(data, key= "sample", value = "reads", -symbol)
+long_data$log10.reads <- log10(long_data$reads + 1) #
+ggplot(long_data, aes(x=sample, y=log10.reads)) + geom_boxplot()
+```
+
+```{r edgeRPrep}
+group <- as.factor(rep(SAMPLES, each=SAMPLE_REPETITION))
+
+egSYMBOL <- toTable(org.Hs.egSYMBOL)
+m <- match(data$symbol, egSYMBOL$symbol)
+data$id <- egSYMBOL[m,"gene_id"]
+  
+i <- ncol(data)
+data <- data[,c(1, i, 2:(i-1))]
+  
+buildDGE <- function(x, group,n=2){
+  
+  y <- DGEList(counts=x[,3:i], genes=x[,1:2], group=group)
+  
+  keep <- rowSums(cpm(y)>1)>=n
+  y <- y[keep,,keep.lib.sizes=F]
+  
+  y <- calcNormFactors(y)
+  
+  invisible(y)
+}
+
+
+DGE0 <- buildDGE(data, group, n=SAMPLE_REPETITION)
+
+
+buildDesign <- function(y){
+  design <- model.matrix(~0+group, data=y$samples)
+  colnames(design) <- levels(y$samples$group)
+  
+  invisible(design)
+}
+
+
+Design <- buildDesign(DGE0)
+
+DGE <- estimateDisp(DGE0, Design, robust = TRUE)
+Fit <- glmQLFit(DGE, Design, robust= TRUE)
+```
+
+```{r saveObj}
+saveRDS(DGE, file = "DGE.obj")
+saveRDS(Fit, file = "fit.obj")
+saveRDS(Design, file = "design.obj")
+
+cell_list <- as.list(CELLS)
+names(cell_list) <- CELLS
+saveRDS(cell_list, file = "cells.obj")
+
+saveRDS(CONDITION, file = "condition.obj")
+```
+
+```{r makeTopTable}
+anovContrast <- function(design){
+
+	group <- attr(design,"dimnames")[[2]]
+	k <- length(group)
+
+	str <- character() 
+	str0 <- as.character()
+
+	for (i in 1:(k-1)){
+		for (j in (i+1):k){
+		str0 <- paste0(group[i],"vs",group[j]," = ",group[i]," - ",group[j])
+		str <- c(str, str0)
+		}
+	}
+
+	return(str)
+}
+
+# Make 'TopTags' object
+comparisonPairsVect <- anovContrast(Design)
+comparisonMatrix <- makeContrasts(contrasts=comparisonPairsVect, levels=Design)
+anovLogFC <- glmQLFTest(Fit, contrast = comparisonMatrix)
+Top <- topTags(anovLogFC, n=N_TOP)
+
+dfTop <- Top@.Data[[1]]
+splittedComparisonPairsVect <- str_split(comparisonPairsVect, pattern=" ", simplify=TRUE)
+comparisonPairs <- splittedComparisonPairsVect[,1]
+colnames(dfTop) <- c("symbol", "gene_id", comparisonPairs, "logCPM", "F", "PValue", "FDR")
+```
+
+### 変動上位 `r N_TABLE_ROW` 遺伝子の発現変動
+
+```{r printTable}
+kable(head(dfTop, n=N_TABLE_ROW))
+```
+
+### 変動上位 `r N_TOP` 遺伝子でのヒートマップ
+#### log2 Fold Change
+
+```{r heatmapFoldChange, fig.height=11, fig.width=12}
+nComparisonPairs <- ncol(comparisonMatrix)
+mtTop <- as.matrix(dfTop[,3:(nComparisonPairs+1)])
+
+myDist=function(c){dist(c,method="euclidian")}
+myClust=function(c){hclust(c,method="average")}
+
+heatmap.2(mtTop, distfun=myDist, hclustfun=myClust, dendrogram="both", scale="none", symbreaks=TRUE, col=rev(redgreen(75)), trace="none", margins=c(10,5), cexRow=0.8, cexCol=0.7, labRow=dfTop[,"symbol"], density.info="none", symkey=FALSE, main="log FC")
+```
+
+#### log2 CPM
+
+```{r heatmapCpm, fig.height=10}
+m <- match(rownames(dfTop),rownames(DGE$genes))
+tbCPMTop <- cpm(DGE)[m,]
+mtLogCPM <- log2(as.matrix(tbCPMTop)+1)
+
+heatmap.2(mtLogCPM, distfun=myDist, hclustfun=myClust, dendrogram="both", scale="none", symbreaks=FALSE, col=rev(heat.colors(75)), trace="none", cexRow=0.8, cexCol=0.9,  labRow=dfTop[,"symbol"], density.info="none", symkey=FALSE, main="log CPM")
+```
+
+### MDS法でのサンプル差異
+
+```{r MDS}
+colors0 <- brewer.pal(length(CELLS), "Spectral")
+colors <- colors0[rep(c(1:length(CELLS)), each=length(CONDITION)*SAMPLE_REPETITION)]
+shapes0 <- c(15:(14+length(CONDITION)))
+shapes <- rep(shapes0, each=SAMPLE_REPETITION)
+
+plotMDS(DGE, col=colors,  pch=shapes, cex=2)
+legend("topright", cex=0.7, legend=levels(group), pch=shapes0, col=rep(colors0,each=length(CONDITION)), ncol=4)
+```
+
+### 主成分分析でのサンプル差異
+
+```{r PCA, fig.height=8}
+tbCPM <- cpm(DGE)
+rownames(tbCPM) <- DGE$genes$symbol
+dfCPM.T <- as.data.frame(t(tbCPM))
+dfCPM.T$cell <- as.factor(rep(CELLS, each=length(CONDITION) * SAMPLE_REPETITION))
+dfCPM.T$condition <- as.factor(rep(rep(CONDITION, each= SAMPLE_REPETITION), length(CELLS)))
+i = ncol(dfCPM.T)
+
+PCA.CPM <- PCA(dfCPM.T, graph = F, quali.sup = (i-1):i)
+plot(PCA.CPM, habillage=i, cex = 0.8)
+```
+
+## 付録
+### コード
+
+試験条件
+
+```{r testCond, echo=TRUE, eval=FALSE}
+```
+
+プロット条件
+
+```{r plotEnv, echo=TRUE, eval=FALSE}
+```
+
+データ読み込み
+
+```{r readData, echo=TRUE, eval=FALSE}
+```
+
+箱ひげプロット
+
+```{r plotBox, echo=TRUE, eval=FALSE}
+```
+
+データ前処理 (edgeR)
+
+```{r edgeRPrep, echo=TRUE, eval=FALSE}
+```
+
+オブジェクト保存
+
+```{r saveObj, echo=TRUE, eval=FALSE}
+```
+
+変動上位表作成
+
+```{r makeTopTable, echo=TRUE, eval=FALSE}
+```
+
+```{r printTable, echo=TRUE, eval=FALSE}
+```
+
+log2 FC Heatmap
+
+```{r heatmapFoldChange, echo=TRUE, eval=FALSE}
+```
+
+log CPM Heatmap
+
+```{r heatmapCpm, echo=TRUE, eval=FALSE}
+```
+
+MDS plot
+
+```{r MDS, echo=TRUE, eval=FALSE}
+```
+
+PCA plot
+
+```{r PCA, echo=TRUE, eval=FALSE}
+```
+
+
+### Session Info
+
+```{r info, echo=FALSE}
+sessionInfo()
+```
