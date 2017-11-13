@@ -50,7 +50,7 @@ N_TABLE_ROW <- 10    # number of genes in tables
 
 ```{r readData}
 # Retrieve data for BMEC.
-runData <- read.delim(FILENAME, stringsAsFactors = F)
+data <- read.delim(FILENAME, stringsAsFactors = F)
 colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
 ```
 
@@ -65,7 +65,7 @@ group <- as.factor(rep(SAMPLES, each=SAMPLE_REPETITION))
 
 egSYMBOL <- toTable(org.Hs.egSYMBOL)
 m <- match(data$id, egSYMBOL$gene_id)
-data$id <- egSYMBOL[m,"symbol"]
+data$symbol <- egSYMBOL[m,"symbol"]
   
 i <- ncol(data)
 data <- data[,c(i, 1:(i-1))]

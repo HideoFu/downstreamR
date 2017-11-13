@@ -55,7 +55,7 @@ colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE
 ```
 
 ```{r plotBox}
-long_data <- gather(data, key= "sample", value = "reads", -symbol)
+long_data <- gather(data, key= "sample", value = "reads", -id)
 long_data$log10.reads <- log10(long_data$reads + 1) #
 ggplot(long_data, aes(x=sample, y=log10.reads)) + geom_boxplot()
 ```
