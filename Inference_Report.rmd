@@ -1,5 +1,5 @@
 ---
-title: "FILMseq result --- 20170919" 
+title: "Inference result --- 20170919" 
 author: "H. Fushimi"
 date: "09/21/2017"
 output:
@@ -29,7 +29,7 @@ library(dplyr)
 ## 試験条件
 
 ```{r testCond}
-FILENAME <- "170919_Counts_Summary.txt"
+FILENAME <- "inferred_read.csv"
 
 CELLS <- c("iPS101", "iPS102", "iPS1279", "iPS6.1")
 CONDITION <- c("s1", "s2", "s3")
@@ -50,30 +50,20 @@ N_TABLE_ROW <- 10    # number of genes in tables
 
 ```{r readData}
 # Retrieve data for BMEC.
-runData <- read.delim(FILENAME, stringsAsFactors = F)
-col1 <- grep("milliQ", colnames(runData))
-col2 <- grep("Undetermined", colnames(runData))
-cols <- c(col1, col2)
+data <- read.csv(FILENAME, stringsAsFactors = F)
 
-data <- runData[,-cols] 
-colnames(data) <- c("symbol", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
-```
-
-```{r plotBox}
-long_data <- gather(data, key= "sample", value = "reads", -symbol)
-long_data$log10.reads <- log10(long_data$reads + 1) #
-ggplot(long_data, aes(x=sample, y=log10.reads)) + geom_boxplot()
+colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
 ```
 
 ```{r edgeRPrep}
 group <- as.factor(rep(SAMPLES, each=SAMPLE_REPETITION))
 
 egSYMBOL <- toTable(org.Hs.egSYMBOL)
-m <- match(data$symbol, egSYMBOL$symbol)
-data$id <- egSYMBOL[m,"gene_id"]
+m <- match(data$id, egSYMBOL$gene_id)
+data$symbol <- egSYMBOL[m,"symbol"]
   
 i <- ncol(data)
-data <- data[,c(1, i, 2:(i-1))]
+data <- data[,c(i, 1:(i-1))]
   
 buildDGE <- function(x, group,n=2){
   
@@ -186,7 +176,7 @@ shapes0 <- c(15:(14+length(CONDITION)))
 shapes <- rep(shapes0, each=SAMPLE_REPETITION)
 
 plotMDS(DGE, col=colors,  pch=shapes, cex=2)
-legend("topright", cex=0.7, legend=levels(group), pch=shapes0, col=rep(colors0,each=length(CONDITION)), ncol=4)
+legend("topright", cex=0.7, legend=SAMPLES, pch=shapes0, col=rep(colors0,each=length(CONDITION)), ncol=4)
 ```
 
 ### 主成分分析でのサンプル差異

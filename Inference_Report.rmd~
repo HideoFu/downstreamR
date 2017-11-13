@@ -1,5 +1,5 @@
 ---
-title: "FILMseq result --- 20170919" 
+title: "Inference result --- 20170919" 
 author: "H. Fushimi"
 date: "09/21/2017"
 output:
@@ -29,7 +29,7 @@ library(dplyr)
 ## 試験条件
 
 ```{r testCond}
-FILENAME <- "combined_read.txt"
+FILENAME <- "inferred_read.csv"
 
 CELLS <- c("iPS101", "iPS102", "iPS1279", "iPS6.1")
 CONDITION <- c("s1", "s2", "s3")
@@ -50,14 +50,9 @@ N_TABLE_ROW <- 10    # number of genes in tables
 
 ```{r readData}
 # Retrieve data for BMEC.
-runData <- read.delim(FILENAME, stringsAsFactors = F)
-colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
-```
+data <- read.csv(FILENAME, stringsAsFactors = F)
 
-```{r plotBox}
-long_data <- gather(data, key= "sample", value = "reads", -symbol)
-long_data$log10.reads <- log10(long_data$reads + 1) #
-ggplot(long_data, aes(x=sample, y=log10.reads)) + geom_boxplot()
+colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
 ```
 
 ```{r edgeRPrep}
