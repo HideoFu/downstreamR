@@ -1,0 +1,214 @@
+---
+title: "WGCNA_report"
+author: "Hideo Fushimi"
+date: "2017年11月28日"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+```
+
+```{r readPCR}
+pcr <- read.csv("PCR.csv", stringsAsFactors = F)
+
+pcr <- pcr[c(17,16,18),]
+
+# duplicate rows
+pcr <- pcr[rep(row.names(pcr), each=2),]
+```
+
+```{r cleanData}
+library(edgeR)
+
+dge <- readRDS("DGE.obj")
+cpm <- cpm(dge)
+rownames(cpm) <- dge$genes$symbol
+
+# remove 201B7 (_25)
+cpm <- cpm[,1:24]
+
+# Extract d0 expressions
+time_cols1 <- seq(1, ncol(cpm), by=8)
+time_cols2 <- seq(2, ncol(cpm), by=8)
+
+time_cols <- c(time_cols1, time_cols2)
+time_cols <- time_cols[order(time_cols)]
+cpm <- cpm[, time_cols]
+
+```
+
+```{r WGCNA_1}
+library(WGCNA)
+
+t_cpm <- as.data.frame(t(cpm))
+
+gsg <- goodSamplesGenes(t_cpm, verbose=3)
+gsg$allOK
+```
+
+```{r cleanTable}
+t_cpm <- t_cpm[, gsg$goodGenes]
+```
+
+```{r }
+sampleTree <- hclust(dist(t_cpm), method="average")
+plot(sampleTree)
+```
+
+```{r modulation}
+powers <- c(c(1:10), seq(12, 20, by=2))
+
+sft <- pickSoftThreshold(t_cpm, powerVector = powers, blockSize = 11000, verbose=5)
+```
+
+```{r plotSFT}
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2],
+     xlab="Soft Threshold (power)", type="n")
+text(sft$fitIndices[,1], -sign(sft$fitIndices[, 3]) * sft$fitIndices[, 2], labels=powers)
+```
+
+```{r net}
+net <- blockwiseModules(t_cpm, power = 7,
+                        TOMType = "unsigned", minModuleSize = 30,
+                        reassignThreshold = 0, mergeCutHeight = 0.25,
+                        numericLabels = T, pamRespectsDendro = F,
+                        saveTOMs = T,
+                        saveTOMFileBase = "cardioTOM",
+                        verbose=3)
+```
+
+```{r }
+table(net$colors)
+```
+
+```{r plot}
+mergedColors <- labels2colors(net$colors)
+
+plotDendroAndColors(net$dendrograms[[1]], mergedColors[net$blockGenes[[1]]],
+                    "Module Colours",
+                    dendroLabels = F, hang=0.03,
+                    addGuide = T, guideHang=0.05)
+```
+
+```{r pcr}
+rownames(pcr) <- rownames(t_cpm)
+pcr <- pcr[,5:6]
+log2pcr <- log2(pcr)
+```
+
+```{r eigen}
+moduleLabels <- net$colors
+moduleColors <- labels2colors(moduleLabels)
+
+MEList <- moduleEigengenes(t_cpm, moduleColors)
+
+MEs <- orderMEs(MEList$eigengenes)
+
+moduleTraitCor = cor(MEs, log2pcr, use = "p")
+moduleTraitPValue = corPvalueStudent(moduleTraitCor, nrow(t_cpm))
+
+textMatrix <- paste(signif(moduleTraitCor, 2), "\n(",
+                    signif(moduleTraitPValue, 1), ")", sep="")
+dim(textMatrix) <- dim(moduleTraitCor)
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels=names(log2pcr),
+               yLabels=names(MEs),
+               ySymbols=names(MEs),
+               colorLabels=F,
+               colors=greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = F,
+               cex.text=0.5,
+               zlim=c(-1,1),
+               main=paste("Module-trait relationship"))
+```
+
+```{r setTrait1}
+TRAIT <- as.data.frame(log2pcr$NKX2.5)
+names(TRAIT) <- "NKX2.5"
+```
+
+```{r GS-MM}
+modNames <- substring(names(MEs), 3)
+
+geneModuleMembership = as.data.frame(cor(t_cpm, MEs, use="p"))
+MMPvalue = as.data.frame(corPvalueStudent(as.matrix(geneModuleMembership), nrow(t_cpm)))
+
+names(geneModuleMembership) <- paste("MM", modNames, sep="")
+names(MMPvalue) <- paste0("p.MM", modNames)
+
+geneTraitSignif <- as.data.frame(cor(t_cpm, TRAIT, use="p"))
+GSPvalue <- as.data.frame(corPvalueStudent(as.matrix(geneTraitSignif), nrow(t_cpm)))
+
+names(geneTraitSignif) <- paste0("GS.", names(TRAIT))
+names(GSPvalue) <- paste0("p.GS.", names(TRAIT))
+```
+
+```{r setModule1}
+MODULE <- "yellow"
+```
+
+```{r GsMmPlot}
+column = match(MODULE, modNames)
+moduleGenes = moduleColors==MODULE
+
+verboseScatterplot(abs(geneModuleMembership[moduleGenes, column]),
+                   abs(geneTraitSignif[moduleGenes, 1]),
+                   xlab=paste("Module Membership in", MODULE, "module"),
+                   ylab=paste("Gene Significance for", names(TRAIT), "Expression"),
+                   main="Module Membership vs. Gene Significance\n",
+                   pch=16, col=MODULE, bg=MODULE,
+                   cex.main=1, cex.lab=1, cex.axis = 1)
+```
+
+```{r setModule2}
+MODULE <- "green"
+```
+
+```{r plot2, ref.label="GsMmPlot"}
+```
+
+```{r output}
+geneInfo0 <- data.frame(symbol = names(t_cpm), moduleColor = moduleColors,
+                         geneTraitSignif, GSPvalue)
+
+modOrder <- order(-abs(cor(MEs, TRAIT, use="p")))
+
+for(mod in 1:ncol(geneModuleMembership)){
+  oldNames <- names(geneInfo0)
+  geneInfo0 <- data.frame(geneInfo0, geneModuleMembership[, modOrder[mod]],
+                          MMPvalue[, modOrder[mod]])
+  names(geneInfo0) <- c(oldNames, paste0("MM.", modNames[modOrder[mod]]),
+                        paste0("p.MM.", modNames[modOrder[mod]]))
+}
+
+geneOrder <- order(geneInfo0$moduleColor, -abs(geneInfo0[,paste0("GS.",names(TRAIT))]))
+geneInfo <- geneInfo0[geneOrder,]
+
+write.csv(geneInfo, paste0("WGCNA_d0_wo_201_",names(TRAIT),".csv"))
+```
+
+```{r setTrait2}
+TRAIT <- as.data.frame(log2pcr$TNNT2)
+names(TRAIT) <- "TNNT2"
+```
+
+```{r GS-MM2, ref.label="GS-MM"}
+```
+
+```{r setmod3, ref.label="setModule1"}
+```
+
+```{r plot3, ref.label="GsMmPlot"}
+```
+
+```{r setmod4, ref.label="setModule2"}
+```
+
+```{r plot4, ref.label="GsMmPlot"}
+```
+
+```{r output2, ref.label="output"}
+```

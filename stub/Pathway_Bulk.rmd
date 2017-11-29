@@ -1,0 +1,257 @@
+---
+title: "Inference result (SEC vs REC_late) --- 20171016" 
+author: "H. Fushimi"
+date: "11/20/2017"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, cache = TRUE)
+```
+
+
+# ```{r loadLib, include=FALSE}
+# library(tidyr)
+# library(org.Hs.eg.db)
+# library(edgeR)
+# library(stringr)
+# library(knitr)
+# library(statmod)
+# library(dplyr)
+# library(pathview)
+# ```
+
+## 試験条件
+
+- JTEC 依頼の検体につき、Broad L1000 landmark 遺伝子の Amplicon Seq. を行った。
+- 検体は以下の通り
+
+  + Fibroblast (HODA); DMEM + 10% FBS; P4
+  + Fibroblast (HODA); EFM + 10% FBS; P4
+  + Fibroblast (HODA); 改良EFM + 10% FBS; P4
+  + ADSC (543947); αMEM + 15% FBS; P5
+  + ADSC (543947); EFM + 15% FBS; P5
+  + ADSC (543947); 改良EFM + 15% FBS; P5
+
+### データ処理概要
+- cutadapt (ver 1.14) を用いて SampleSheet.csv 記載のアダプターを除去した後、Phred スコアにより低クオリティリードを除去した。
+- 本処理後のリードクオリティについて、 FastQC (ver )を用い可視化した。
+- HISAT2 (ver 2.1.0) を用い、ヒトゲノム GRCh38 に対し、リードのマッピングを行った。
+- これにより生成された sam ファイルを用い、マッピング位置 (クロモソーム、開始位置）と GRCh38 での遺伝子位置情報 (eg.org.Hs.db パッケージを使用）より、L1000 landmark 内の各遺伝子にマップされたリード個数をカウントした。(内製スクリプト Lcount.R)
+- GSE92742 に公開されている L1000 とその他の affymetrix 因子の相関係数を用い、上記リード数をその他の遺伝子へと外挿した。
+
+```{r testCond}
+FILENAME <- "inferred_read.csv"
+
+CELLS <- c("REC_early", "REC_late", "MEC", "SEC", "Bulk", "PuREC_original", "PuREC")
+CONDITION <- "s1"
+SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
+
+SAMPLE_REPETITION <- 4
+
+CONTROL <- "REC_early"
+SAMPLE <- "Bulk"
+```
+
+## 結果概要
+おのおのの推奨培地とEFM培地間では発現変動が見られたが、EFMと改良EFM間では大きな差は見られなかった。
+
+## 結果
+
+```{r readData}
+# Retrieve data for BMEC.
+data <- read.csv(FILENAME, stringsAsFactors = F)
+colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE_REPETITION), sep="_"))
+```
+
+```{r selectADSC}
+col1 <- grep(CONTROL, colnames(data))
+col2 <- grep(SAMPLE, colnames(data))
+data <- data[,c(1, col1, col2)]
+
+CELLS <- c(CONTROL, SAMPLE)
+CONDITION <- "s1"
+SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
+```
+
+
+```{r edgeRPrep}
+group <- as.factor(rep(SAMPLES, each=SAMPLE_REPETITION))
+group <- factor(group, levels=SAMPLES)
+
+egSYMBOL <- toTable(org.Hs.egSYMBOL)
+m <- match(data$id, egSYMBOL$gene_id)
+data$symbol <- egSYMBOL[m,"symbol"]
+  
+i <- ncol(data)
+data <- data[,c(i, 1:(i-1))]
+  
+buildDGE <- function(x, group,n=2){
+  
+  y <- DGEList(counts=x[,3:i], genes=x[,1:2], group=group)
+  
+  keep <- rowSums(cpm(y)>1)>=n
+  y <- y[keep,,keep.lib.sizes=F]
+  
+  y <- calcNormFactors(y)
+  
+  invisible(y)
+}
+
+
+DGE0 <- buildDGE(data, group, n=SAMPLE_REPETITION)
+
+
+buildDesign <- function(y){
+  design <- model.matrix(~0+group, data=y$samples)
+  colnames(design) <- levels(y$samples$group)
+  
+  invisible(design)
+}
+
+
+Design <- buildDesign(DGE0)
+
+DGE <- estimateDisp(DGE0, Design, robust = TRUE)
+Fit <- glmQLFit(DGE, Design, robust= TRUE)
+```
+
+```{r saveObj}
+saveRDS(DGE, file = paste0("DGE_",SAMPLE, ".obj"))
+saveRDS(Fit, file = paste0("fit_", SAMPLE, ".obj"))
+saveRDS(Design, file = paste0("design_", SAMPLE, ".obj"))
+
+cell_list <- as.list(CELLS)
+names(cell_list) <- CELLS
+saveRDS(cell_list, file = paste0("cells_", SAMPLE, ".obj"))
+
+saveRDS(CONDITION, file = paste0("condition_", SAMPLE, ".obj"))
+```
+
+#### 発現上昇している遺伝子の多いパスウェイ
+
+```{r keggAnalysisEfmUp}
+qlf_efm <- glmQLFTest(Fit, contrast=c(-1,1))
+keg <- kegga(qlf_efm, species="Hs")
+up_kegg <- topKEGG(keg, sort="up")
+write.csv(up_kegg, paste0("up_kegg_", SAMPLE, ".csv"))
+up_kegg
+```
+
+```{r table}
+fc_efm <- data.frame(qlf_efm$table$logFC)
+rownames(fc_efm) <- qlf_efm$genes$id
+```
+
+```{r}
+# pv.out <- pathview(gene.data=fc_efm, pathway.id="05130", species="hsa", out.suffix="SEC_up")
+```
+
+#### 発現低下している遺伝子の多いパスウェイ
+
+```{r keggAnalysisEfmDown}
+down_kegg <- topKEGG(keg, sort="down")
+write.csv(down_kegg, paste0("down_kegg_", SAMPLE, ".csv"))
+down_kegg
+```
+
+```{r}
+#pv.out <- pathview(gene.data=fc_efm, pathway.id="04310", species="hsa", out.suffix="efm_down")
+#pv.out <- pathview(gene.data=fc_efm, pathway.id="00564", species="hsa", out.suffix="efm_down")
+```
+
+#### cluster
+
+```{r clusterProfiler}
+gene_list <- qlf_efm$table$logFC
+names(gene_list) <- qlf_efm$genes$id
+
+gene <- names(gene_list)[abs(gene_list) > 1]
+
+enrich_go <- enrichGO(gene = gene,
+                      universe = names(gene_list),
+                      OrgDb = org.Hs.eg.db,
+                      ont = "BP",
+                      pAdjustMethod = "BH",
+                      readable = TRUE)
+  
+write.table(enrich_go, "enrich_go.txt", sep="\t")
+enrichMap(enrich_go)
+```
+
+## 付録
+### コード
+
+試験条件
+
+```{r testCond, echo=TRUE, eval=FALSE}
+```
+
+プロット条件
+
+```{r plotEnv, echo=TRUE, eval=FALSE}
+```
+
+データ読み込み
+
+```{r readData, echo=TRUE, eval=FALSE}
+```
+
+箱ひげプロット
+
+```{r plotBox, echo=TRUE, eval=FALSE}
+```
+
+データ前処理 (edgeR)
+
+```{r edgeRPrep, echo=TRUE, eval=FALSE}
+```
+
+オブジェクト保存
+
+```{r saveObj, echo=TRUE, eval=FALSE}
+```
+
+変動上位表作成
+
+```{r makeTopTable, echo=TRUE, eval=FALSE}
+```
+
+```{r printTable, echo=TRUE, eval=FALSE}
+```
+
+log2 FC Heatmap
+
+```{r heatmapFoldChange, echo=TRUE, eval=FALSE}
+```
+
+log CPM Heatmap
+
+```{r heatmapCpm, echo=TRUE, eval=FALSE}
+```
+
+MDS plot
+
+```{r MDS, echo=TRUE, eval=FALSE}
+```
+
+PCA plot
+
+```{r PCA, echo=TRUE, eval=FALSE}
+```
+
+パスウェイ分析
+```{r keggAnalysisEfmUp}
+```
+
+```{r keggAnalysisEfmDown}
+```
+
+### Session Info
+
+```{r info, echo=FALSE}
+sessionInfo()
+```

@@ -1,0 +1,63 @@
+---
+title: "DAVID on TNNT2 with module Yellow"
+output: html_notebook
+---
+
+```{r condition}
+options(stringsAsFactors = F)
+```
+
+```{r readData}
+modList <- read.csv("WGCNA_d0_wo_201_TNNT2.csv")
+modYellow <- modList[modList$moduleColor=="yellow",]
+
+modYsig <- modYellow[modYellow$p.GS.TNNT2 <= 0.1,]
+modYsig <- modYsig[, c(2, 4)]
+
+library(org.Hs.eg.db)
+
+egSym <- toTable(org.Hs.egSYMBOL)
+m <- match(modYsig$symbol, egSym$symbol)
+modYsig$id <- egSym[m, "gene_id"]
+
+modYSigPos <- modYsig[modYsig$GS.TNNT2 > 0,]
+modYSigNeg <- modYsig[modYsig$GS.TNNT2 < 0,]
+
+posList <- modYSigPos$id
+negList <- modYSigNeg$id
+```
+
+```{r connectDAVID}
+library(RDAVIDWebService)
+
+david <- DAVIDWebService(email="hideo.fushimi@fujifilm.com",
+                         url="https://david.ncifcrf.gov/webservice/services/DAVIDWebService.DAVIDWebServiceHttpSoap12Endpoint/")
+```
+
+```{r DAVIDPos}
+posRes <- addList(david, posList,
+                  idType = "ENTREZ_GENE_ID",
+                  listName = "posList", listType="Gene")
+
+setAnnotationCategories(david, "GOTERM_BP_ALL")
+
+termCluster <- getClusterReport(david, type="Term")
+getClusterReportFile(david, type="Term", fileName="termClusterPos.tab")
+
+head(summary(termCluster))
+
+# plot2D(termCluster,3) + ggtitle("Cluster 3 with TNNT2 positively related genes in Module Yellow\n Enrichment = 1.00") + theme(plot.title=element_text(size=rel(0.8), hjust=0.5)) + xlab("Entrez ID")
+```
+
+```{r DAVIDNeg}
+negRes <- addList(david, negList,
+                  idType = "ENTREZ_GENE_ID",
+                  listName = "negList", listType="Gene")
+
+setAnnotationCategories(david, "GOTERM_BP_ALL")
+
+termCluster <- getClusterReport(david, type="Term")
+getClusterReportFile(david, type="Term", fileName="termClusterNeg.tab")
+
+head(summary(termCluster))
+```
