@@ -13,53 +13,30 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, cache = TRUE)
 ```
 
 
-# ```{r loadLib, include=FALSE}
-# library(tidyr)
-# library(org.Hs.eg.db)
-# library(edgeR)
-# library(stringr)
-# library(knitr)
-# library(statmod)
-# library(dplyr)
-# library(pathview)
-# ```
-
-## 試験条件
-
-- JTEC 依頼の検体につき、Broad L1000 landmark 遺伝子の Amplicon Seq. を行った。
-- 検体は以下の通り
-
-  + Fibroblast (HODA); DMEM + 10% FBS; P4
-  + Fibroblast (HODA); EFM + 10% FBS; P4
-  + Fibroblast (HODA); 改良EFM + 10% FBS; P4
-  + ADSC (543947); αMEM + 15% FBS; P5
-  + ADSC (543947); EFM + 15% FBS; P5
-  + ADSC (543947); 改良EFM + 15% FBS; P5
-
-### データ処理概要
-- cutadapt (ver 1.14) を用いて SampleSheet.csv 記載のアダプターを除去した後、Phred スコアにより低クオリティリードを除去した。
-- 本処理後のリードクオリティについて、 FastQC (ver )を用い可視化した。
-- HISAT2 (ver 2.1.0) を用い、ヒトゲノム GRCh38 に対し、リードのマッピングを行った。
-- これにより生成された sam ファイルを用い、マッピング位置 (クロモソーム、開始位置）と GRCh38 での遺伝子位置情報 (eg.org.Hs.db パッケージを使用）より、L1000 landmark 内の各遺伝子にマップされたリード個数をカウントした。(内製スクリプト Lcount.R)
-- GSE92742 に公開されている L1000 とその他の affymetrix 因子の相関係数を用い、上記リード数をその他の遺伝子へと外挿した。
-
-```{r testCond}
-FILENAME <- "inferred_read.csv"
-
-CELLS <- c("REC_early", "REC_late", "MEC", "SEC", "Bulk", "PuREC_original", "PuREC")
-CONDITION <- "s1"
-SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
-
-SAMPLE_REPETITION <- 4
-
-CONTROL <- "REC_early"
-SAMPLE <- "Bulk"
+```{r loadLib, include=FALSE}
+library(tidyr)
+library(org.Hs.eg.db)
+library(edgeR)
+library(stringr)
+library(knitr)
+library(statmod)
+library(dplyr)
+# library(pathview)  # need to attach from console 
 ```
 
-## 結果概要
-おのおのの推奨培地とEFM培地間では発現変動が見られたが、EFMと改良EFM間では大きな差は見られなかった。
 
-## 結果
+```{r testCond}
+FILENAME <- "combined_data.csv"
+
+CELLS <- c("iPS101", "iPS6.1", "iPS102", "iPS201B7")
+CONDITION <- c("d0", "d2", "d8", "d14")
+SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
+
+SAMPLE_REPETITION <- 2
+
+CONTROL <- "iPS6.1"
+SAMPLE <- "iPS101"
+```
 
 ```{r readData}
 # Retrieve data for BMEC.
@@ -68,12 +45,12 @@ colnames(data) <- c("id", paste(rep(SAMPLES, each=SAMPLE_REPETITION), c(1:SAMPLE
 ```
 
 ```{r selectADSC}
-col1 <- grep(CONTROL, colnames(data))
-col2 <- grep(SAMPLE, colnames(data))
+col1 <- grep(paste(CONTROL, "d8", sep="_"), colnames(data))
+col2 <- grep(paste(SAMPLE, "d8", sep="_"), colnames(data))
 data <- data[,c(1, col1, col2)]
 
 CELLS <- c(CONTROL, SAMPLE)
-CONDITION <- "s1"
+CONDITION <- "d8"
 SAMPLES <- paste(rep(CELLS, each=length(CONDITION)), CONDITION, sep="_")
 ```
 
@@ -119,18 +96,6 @@ DGE <- estimateDisp(DGE0, Design, robust = TRUE)
 Fit <- glmQLFit(DGE, Design, robust= TRUE)
 ```
 
-```{r saveObj}
-saveRDS(DGE, file = paste0("DGE_",SAMPLE, ".obj"))
-saveRDS(Fit, file = paste0("fit_", SAMPLE, ".obj"))
-saveRDS(Design, file = paste0("design_", SAMPLE, ".obj"))
-
-cell_list <- as.list(CELLS)
-names(cell_list) <- CELLS
-saveRDS(cell_list, file = paste0("cells_", SAMPLE, ".obj"))
-
-saveRDS(CONDITION, file = paste0("condition_", SAMPLE, ".obj"))
-```
-
 #### 発現上昇している遺伝子の多いパスウェイ
 
 ```{r keggAnalysisEfmUp}
@@ -144,6 +109,8 @@ up_kegg
 ```{r table}
 fc_efm <- data.frame(qlf_efm$table$logFC)
 rownames(fc_efm) <- qlf_efm$genes$id
+
+saveRDS(fc_efm, paste("fc_efm",SAMPLE, "vs", CONTROL, CONDITION, ".obj", sep="_"))
 ```
 
 ```{r}
