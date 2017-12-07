@@ -154,7 +154,7 @@ kable(head(dfTop, n=N_TABLE_ROW))
 
 ```{r heatmapFoldChange, fig.height=11, fig.width=12}
 nComparisonPairs <- ncol(comparisonMatrix)
-mtTop <- as.matrix(dfTop[,3:(nComparisonPairs+1)])
+mtTop <- as.matrix(dfTop[,3:(nComparisonPairs+2)])
 
 myDist=function(c){dist(c,method="euclidian")}
 myClust=function(c){hclust(c,method="average")}
